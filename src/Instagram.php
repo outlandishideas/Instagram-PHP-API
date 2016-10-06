@@ -101,6 +101,16 @@ class Instagram {
   }
 
   /**
+   * API Callback URL Setter
+   *
+   * @param string $apiCallback
+   * @return void
+   */
+  public function setApiCallback($apiCallback) {
+    $this->_callbackurl = $apiCallback;
+  }
+
+  /**
    * Generates the OAuth login URL
    *
    * @param array [optional] $scope       Requesting additional permissions
@@ -115,6 +125,34 @@ class Instagram {
   }
 
   /**
+   * API Key Getter
+   *
+   * @return string
+   */
+  public function getApiKey() {
+    return $this->_apikey;
+  }
+
+  /**
+   * API-key Setter
+   *
+   * @param string $apiKey
+   * @return void
+   */
+  public function setApiKey($apiKey) {
+    $this->_apikey = $apiKey;
+  }
+
+  /**
+   * API Callback URL Getter
+   *
+   * @return string
+   */
+  public function getApiCallback() {
+    return $this->_callbackurl;
+  }
+
+  /**
    * Search for a user
    *
    * @param string $name                  Instagram username
@@ -123,6 +161,92 @@ class Instagram {
    */
   public function searchUser($name, $limit = 0) {
     return $this->_makeCall('users/search', false, array('q' => $name, 'count' => $limit));
+  }
+
+  /**
+   * The call operator
+   *
+   * @param string $function              API resource path
+   * @param array [optional] $params      Additional request parameters
+   * @param boolean [optional] $auth      deprecated parameter as all requests must be oauthed
+   * @param string [optional] $method     Request type GET|POST
+   * @return mixed
+   */
+  protected function _makeCall($function, $auth = false, $params = null, $method = 'GET')
+  {
+      // if the call needs an authenticated user
+      if (true === isset($this->_accesstoken)) {
+          $authMethod = '?access_token=' . $this->getAccessToken();
+      } else {
+          throw new \Exception("Error: _makeCall() | $function - This method requires an authenticated users access token.");
+      }
+
+    if (isset($params) && is_array($params)) {
+      $paramString = '&' . http_build_query($params);
+    } else {
+      $paramString = null;
+    }
+
+    $apiCall = self::API_URL . $function . $authMethod . (('GET' === $method) ? $paramString : null);
+
+    // signed header of POST/DELETE requests
+    $headerData = array('Accept: application/json');
+    if (true === $this->_signedheader && 'GET' !== $method) {
+      $headerData[] = 'X-Insta-Forwarded-For: ' . $this->_signHeader();
+    }
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $apiCall);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headerData);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 20);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+
+    if ('POST' === $method) {
+      curl_setopt($ch, CURLOPT_POST, count($params));
+      curl_setopt($ch, CURLOPT_POSTFIELDS, ltrim($paramString, '&'));
+    } else if ('DELETE' === $method) {
+      curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');
+    }
+
+    $jsonData = curl_exec($ch);
+    if (false === $jsonData) {
+      throw new \Exception("Error: _makeCall() - cURL error: " . curl_error($ch));
+    }
+    curl_close($ch);
+
+    return json_decode($jsonData);
+  }
+
+  /**
+   * Access Token Getter
+   *
+   * @return string
+   */
+  public function getAccessToken() {
+    return $this->_accesstoken;
+  }
+
+  /**
+   * Access Token Setter
+   *
+   * @param object|string $data
+   * @return void
+   */
+  public function setAccessToken($data) {
+    (true === is_object($data)) ? $token = $data->access_token : $token = $data;
+    $this->_accesstoken = $token;
+  }
+
+  /**
+   * Sign header by using the app's IP and its API secret
+   *
+   * @return string                       The signed header
+   */
+  private function _signHeader() {
+    $ipAddress = $_SERVER['SERVER_ADDR'];
+    $signature = hash_hmac('sha256', $ipAddress, $this->_apisecret, false);
+    return join('|', array($ipAddress, $signature));
   }
 
   /**
@@ -421,62 +545,22 @@ class Instagram {
   }
 
   /**
-   * The call operator
+   * API Secret Getter
    *
-   * @param string $function              API resource path
-   * @param array [optional] $params      Additional request parameters
-   * @param boolean [optional] $auth      Whether the function requires an access token
-   * @param string [optional] $method     Request type GET|POST
-   * @return mixed
+   * @return string
    */
-  protected function _makeCall($function, $auth = false, $params = null, $method = 'GET') {
-    if (false === $auth) {
-      // if the call doesn't requires authentication
-      $authMethod = '?client_id=' . $this->getApiKey();
-    } else {
-      // if the call needs an authenticated user
-      if (true === isset($this->_accesstoken)) {
-        $authMethod = '?access_token=' . $this->getAccessToken();
-      } else {
-        throw new \Exception("Error: _makeCall() | $function - This method requires an authenticated users access token.");
-      }
-    }
-
-    if (isset($params) && is_array($params)) {
-      $paramString = '&' . http_build_query($params);
-    } else {
-      $paramString = null;
-    }
-
-    $apiCall = self::API_URL . $function . $authMethod . (('GET' === $method) ? $paramString : null);
-
-    // signed header of POST/DELETE requests
-    $headerData = array('Accept: application/json');
-    if (true === $this->_signedheader && 'GET' !== $method) {
-      $headerData[] = 'X-Insta-Forwarded-For: ' . $this->_signHeader();
-    }
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $apiCall);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headerData);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 20);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-
-    if ('POST' === $method) {
-      curl_setopt($ch, CURLOPT_POST, count($params));
-      curl_setopt($ch, CURLOPT_POSTFIELDS, ltrim($paramString, '&'));
-    } else if ('DELETE' === $method) {
-      curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');
-    }
-
-    $jsonData = curl_exec($ch);
-    if (false === $jsonData) {
-      throw new \Exception("Error: _makeCall() - cURL error: " . curl_error($ch));
-    }
-    curl_close($ch);
-
-    return json_decode($jsonData);
+  public function getApiSecret() {
+    return $this->_apisecret;
+  }
+  
+  /**
+   * API Secret Setter
+   *
+   * @param string $apiSecret
+   * @return void
+   */
+  public function setApiSecret($apiSecret) {
+    $this->_apisecret = $apiSecret;
   }
 
   /**
@@ -503,94 +587,6 @@ class Instagram {
     curl_close($ch);
 
     return json_decode($jsonData);
-  }
-
-  /**
-   * Sign header by using the app's IP and its API secret
-   *
-   * @return string                       The signed header
-   */
-  private function _signHeader() {
-    $ipAddress = $_SERVER['SERVER_ADDR'];
-    $signature = hash_hmac('sha256', $ipAddress, $this->_apisecret, false);
-    return join('|', array($ipAddress, $signature));
-  }
-
-  /**
-   * Access Token Setter
-   *
-   * @param object|string $data
-   * @return void
-   */
-  public function setAccessToken($data) {
-    (true === is_object($data)) ? $token = $data->access_token : $token = $data;
-    $this->_accesstoken = $token;
-  }
-
-  /**
-   * Access Token Getter
-   *
-   * @return string
-   */
-  public function getAccessToken() {
-    return $this->_accesstoken;
-  }
-
-  /**
-   * API-key Setter
-   *
-   * @param string $apiKey
-   * @return void
-   */
-  public function setApiKey($apiKey) {
-    $this->_apikey = $apiKey;
-  }
-
-  /**
-   * API Key Getter
-   *
-   * @return string
-   */
-  public function getApiKey() {
-    return $this->_apikey;
-  }
-
-  /**
-   * API Secret Setter
-   *
-   * @param string $apiSecret 
-   * @return void
-   */
-  public function setApiSecret($apiSecret) {
-    $this->_apisecret = $apiSecret;
-  }
-
-  /**
-   * API Secret Getter
-   *
-   * @return string
-   */
-  public function getApiSecret() {
-    return $this->_apisecret;
-  }
-  
-  /**
-   * API Callback URL Setter
-   *
-   * @param string $apiCallback
-   * @return void
-   */
-  public function setApiCallback($apiCallback) {
-    $this->_callbackurl = $apiCallback;
-  }
-
-  /**
-   * API Callback URL Getter
-   *
-   * @return string
-   */
-  public function getApiCallback() {
-    return $this->_callbackurl;
   }
 
   /**
